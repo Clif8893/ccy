@@ -3,14 +3,12 @@
 **How to use this file:** plain text is spoken word-for-word. `[Square brackets]` are screen cues —
 do not read them aloud.
 
-* **Length:** 1,440 spoken words — **9:56** at 145 words per minute, **10:40** even at a slow 135.
-  You are inside the 10-minute cap with margin. Section timestamps are derived from the word
-  counts, so hitting each marker keeps you on schedule.
+* **Length:** 1,440 spoken words — **9:56** at 145 words per minute. Three sentences are marked
+  `[OPTIONAL]`; cutting them saves ~45 seconds, which keeps you under 10:00 even at a slow 135 wpm.
+  Section timestamps assume 145 wpm and include the optional lines.
 * Figures are spoken as plain language ("rounds to one", "a third lower") instead of long strings of
   digits. Digits are slow to say and earn no marks, so that airtime goes into explaining the code —
   the exact values stay on screen behind you.
-* **If you run long,** the safest cuts are the sentinel/corruption sentence in §2 and the tied-
-  configurations sentence in §6 (~20 seconds, no rubric loss).
 * Keep your face visible for the whole take, and scroll to *outputs*, not walls of code.
 
 ---
@@ -56,9 +54,10 @@ tolerates NaN but rejects infinity outright. Then ten percent of rows turn out t
 which I drop *before* splitting — otherwise the identical flow lands in train and test and inflates
 recall for free. Note the key excludes the source-file column, or a flow captured twice survives twice.
 
-And negatives come in two kinds: minus one in the TCP window field is a sentinel for "no window
-advertised", so I keep it and add an is-sentinel indicator — but forty-one rows have a negative
-*duration*, which is real corruption, and I documented it rather than quietly clipping it.
+[OPTIONAL — cut this paragraph if you speak slowly.] And negatives come in two kinds: minus one in the
+TCP window field is a sentinel for "no window advertised", so I keep it and add an is-sentinel
+indicator — but forty-one rows have a negative *duration*, which is real corruption, and I documented
+it rather than quietly clipping it.
 
 ## 2:14 – 3:36 · Targets, features, and keeping the split honest
 
@@ -110,8 +109,8 @@ So I chose on what differs. On validation XGBoost misses four attacks and raises
 alarms; Logistic Regression misses a hundred and one and raises three hundred and thirty-seven —
 twenty-five times the business cost behind a PR-AUC gap of two thousandths.
 
-k-nearest-neighbours I rejected on engineering grounds, not accuracy: forty times slower to score, and
-worse as the training set grows. Unusable in a live sensor.
+[OPTIONAL] k-nearest-neighbours I rejected on engineering grounds, not accuracy: forty times slower to
+score, and worse as the training set grows. Unusable in a live sensor.
 
 ## 4:41 – 5:41 · Performance measurement
 
@@ -153,8 +152,8 @@ the untuned default.
 Rather than hide that, I explain it: hyperparameters only matter where a model is capacity-limited, and
 I'll show you next why this one barely is.
 
-What tuning did buy was efficiency — two configurations tied exactly and one fits in half the time. And
-it genuinely mattered for one model: Logistic Regression improved once I relaxed regularisation,
+[OPTIONAL] What tuning did buy was efficiency — two configurations tied exactly and one fits in half the
+time. [End optional.] And it genuinely mattered for one model: Logistic Regression improved once I relaxed regularisation,
 because it was the only candidate actually underfitting. Meanwhile the threshold cut cost by a third:
 one line beat my whole eighteen-minute search.
 
