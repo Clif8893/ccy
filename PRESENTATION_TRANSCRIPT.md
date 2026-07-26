@@ -1,215 +1,210 @@
-# IT3301 Assignment — 10-Minute Video Walkthrough Transcript
+# IT3301 Assignment — Video Walkthrough Transcript (max 10 minutes)
 
 **How to use this file:** plain text is spoken word-for-word. `[Square brackets]` are screen cues —
 do not read them aloud.
 
-* **Length:** 1,458 spoken words. At 148 words per minute that is **9:51**, so you are inside the
-  10-minute cap with ~9 seconds of slack. The section timestamps below are derived from the word
-  counts, so if you hit each one you will finish on time.
-* **Pace warning:** the number-heavy sentences (§5 thresholds, §6 tuning) take longer to say than
-  ordinary prose. Practise those two sections once against a timer.
-* **If you run long,** the two safest cuts are the duplicate-column efficiency aside in §2 (the
-  "three billion comparisons" sentence) and the two-tied-configurations sentence in §6 — about 20
-  seconds combined, with no loss of a rubric point.
+* **Length:** 1,440 spoken words — **9:56** at 145 words per minute, **10:40** even at a slow 135.
+  You are inside the 10-minute cap with margin. Section timestamps are derived from the word
+  counts, so hitting each marker keeps you on schedule.
+* Figures are spoken as plain language ("rounds to one", "a third lower") instead of long strings of
+  digits. Digits are slow to say and earn no marks, so that airtime goes into explaining the code —
+  the exact values stay on screen behind you.
+* **If you run long,** the safest cuts are the sentinel/corruption sentence in §2 and the tied-
+  configurations sentence in §6 (~20 seconds, no rubric loss).
 * Keep your face visible for the whole take, and scroll to *outputs*, not walls of code.
 
 ---
 
-## 0:00 – 0:39 · Introduction and the problem
+## 0:00 – 0:40 · The problem and how I framed it
 
 [Face to camera, title cell on screen.]
 
 Hi, I'm `<YOUR NAME>`, admin number `<YOUR ADMIN NO>`. This is my IT3301 assignment: a machine
 learning approach to predict fraud for XYZ Cybersecurity.
 
-The client gave me three CSVs — just over a million network flows, each described by seventy-eight
-statistics and a label. A flow is one conversation between two machines, summarised statistically.
+The client gave me three CSVs — just over a million network flows, each summarised by seventy-eight
+statistics plus a label. A flow is one conversation between two machines.
 
-My job is to separate malicious flows from legitimate traffic. I framed it as binary classification
-and chose recall and PR-AUC as headline metrics, not accuracy — because a model that says "everything
-is benign" already scores seventy-nine percent accuracy here.
+I framed it as binary classification and fixed my metrics before modelling: recall and PR-AUC, never
+accuracy — because a model that labels everything benign already scores seventy-nine percent accuracy
+here. I'll cover the code, the results, and three findings that went against me.
 
-## 0:39 – 2:22 · Data understanding and cleaning
+## 0:40 – 2:14 · Data understanding and cleaning
 
-[Scroll to the loader, then the quality audit output.]
+[Scroll to the loader.]
 
-I hardened the loader I was given: it strips the padded spaces off every column name, retries with
-latin-1 because the web-attack file has a non-UTF-8 byte in its label text, and asserts that all
-three files share one schema.
+I hardened the loader I was given: it strips the leading space off every padded header, retries with
+latin-1 because the web-attack file has a non-UTF-8 byte in its label text, and asserts that the three
+captures share a schema.
 
 [Point at the label distribution.]
 
-The most consequential thing I found before modelling: three quarters of flows are benign, but the
-attacks are wildly uneven — DoS Hulk alone is ninety percent of all attacks, while Heartbleed has
-eleven flows and SQL injection twenty-one. Remember that, because it explains nearly every later
-result.
+This is the most consequential thing I found. Three quarters of flows are benign, but the attacks are
+hugely uneven: DoS Hulk alone is ninety percent of all attacks, while Heartbleed has eleven flows.
+Hold on to that.
 
 [Point at the audit output.]
 
-The audit found four real problems. First, the two rate columns contain missing values *and*
-infinities — zero-duration flows, so the rate divides by zero. Second, ten columns
-are constant and sixteen pairs are exact duplicates; Fwd Header Length literally ships twice. I
-dropped seventeen columns.
+The audit found four problems. The two rate columns hold missing values *and* infinities, because a
+zero-duration flow divides by zero. Ten columns are constant and sixteen pairs are exact duplicates,
+so seventeen columns get dropped.
 
-[Point at the duplicate-detection code.]
+[Show clean_flows.]
 
-Comparing all columns pairwise across a million rows is three billion comparisons, so I group
-candidates by a cheap signature and verify only the survivors.
+Cleaning happens in a deliberate order. Infinities become NaN first, because scikit-learn's imputer
+tolerates NaN but rejects infinity outright. Then ten percent of rows turn out to be exact duplicates,
+which I drop *before* splitting — otherwise the identical flow lands in train and test and inflates
+recall for free. Note the key excludes the source-file column, or a flow captured twice survives twice.
 
-Third, ten percent of rows are exact duplicates. I removed them *before* splitting, because the same
-flow in training and test inflates your score for free — and my de-duplication key excludes the
-source-file column, or an identical flow captured twice would survive as two rows.
+And negatives come in two kinds: minus one in the TCP window field is a sentinel for "no window
+advertised", so I keep it and add an is-sentinel indicator — but forty-one rows have a negative
+*duration*, which is real corruption, and I documented it rather than quietly clipping it.
 
-Fourth, negatives come in two kinds. Most are minus one in the TCP window field — a legitimate
-sentinel meaning "no window advertised" — so I keep it and add an is-sentinel flag. But forty-one
-rows have a negative flow *duration*, which is genuine corruption. I documented it, not hid it,
-because a production loader ought to reject those flows outright.
+## 2:14 – 3:36 · Targets, features, and keeping the split honest
 
-## 2:22 – 3:23 · Feature engineering and leakage-free splits
+[Show the label mapping and engineer_features.]
 
-[Show engineer_features.]
+From the label column I derive two targets: a binary attack flag, and an attack family for triage,
+with families under a hundred flows grouped — you can't learn, or even stratify, on eleven flows.
 
 Raw features are absolute; attacks are better described by relationships. So I engineered twenty
-features encoding analyst heuristics: bytes per packet, forward-to-backward asymmetry, header
-overhead as a share of the flow, a flag for an unanswered probe, and a service group from the port.
+features from analyst heuristics: bytes per packet, forward-to-backward asymmetry, header overhead as a
+share of the flow, and a service group derived from the destination port.
 
 [Point at safe_ratio.]
 
-Every ratio goes through this helper, which turns a divide-by-zero into zero rather than a fresh
-infinity — otherwise I'd re-create the problem I just cleaned up.
+Every ratio goes through this helper. It swaps a zero denominator for NaN, divides, then fills with
+zero — so feature engineering can't re-introduce the infinities I just removed.
 
-[Point at the split cell.]
+[Point at the split and pipeline cells.]
 
-Three things here matter for correctness. My imputation and scaling live *inside* a scikit-learn
-pipeline, so they're refitted on each training fold and never see test data. My splits are
-stratified — sixty-four percent train, sixteen validation, twenty test — and this helper folds
-ultra-rare families together so stratifying on eleven Heartbleed flows can't crash the split. And I
-excluded the source-file column from the predictors: it correlates almost perfectly with the attack
-type, so that would be leakage.
+Two choices protect the result. Imputation and scaling sit *inside* a scikit-learn pipeline, so they're
+refitted on every training fold and never see test data. And I excluded the source-file column from
+the predictors — it correlates almost perfectly with attack type, so keeping it would be leakage.
 
-## 3:23 – 4:31 · Model selection
+[Point at the clone() call.]
 
-[Show the candidate dictionary, then the CV table.]
+One subtle bug worth showing. A scikit-learn Pipeline stores a *reference* to the estimator you give
+it, not a copy — so without this `clone`, tuning one pipeline silently mutates the others, and my
+tuned-versus-untuned comparison would have compared the tuned model against itself.
 
-I compared seven learners plus a no-skill baseline on identical stratified five-fold splits.
+## 3:36 – 4:41 · Model selection
+
+[Show the candidates, then the CV table.]
+
+I compared seven learners plus a no-skill baseline, all sharing one `StratifiedKFold` object so every
+model sees identical folds — otherwise I'd be measuring the split, not the model.
 
 [Point at the Dummy row.]
 
-The baseline is my sanity check: PR-AUC zero point two zero nine, and actual prevalence is zero point
-two zero nine. The metrics are honest.
+The baseline's PR-AUC matches attack prevalence almost exactly — so the metric isn't being flattered
+by imbalance.
 
-[Point at the whole table.]
+[Point at the table.]
 
-Now the interesting part. Every serious model is already at the ceiling — boosting at nought point
-nine nine nine nine, down to a plain Decision Tree at nine nine three three. Those gaps sit inside
-the fold-to-fold standard deviations, so **PR-AUC cannot choose my model for me.**
+Now the interesting part. Every serious model is at the ceiling — the boosting models round to one,
+and even a plain Decision Tree reaches nine nine three. Those gaps are smaller than the fold-to-fold
+standard deviations, so **PR-AUC cannot choose my model for me.**
 
-So I chose on the things that actually differ. On validation, XGBoost misses four attacks and raises
-thirteen false alarms; Logistic Regression misses a hundred and one and raises three hundred and
-thirty-seven. Under my ten-to-one cost model that's a twenty-five-times difference in business cost,
-hidden behind a PR-AUC gap of two thousandths.
+So I chose on what differs. On validation XGBoost misses four attacks and raises thirteen false
+alarms; Logistic Regression misses a hundred and one and raises three hundred and thirty-seven —
+twenty-five times the business cost behind a PR-AUC gap of two thousandths.
 
-And I rejected k-nearest-neighbours on engineering grounds, not accuracy: thirteen hundred flows a
-second against XGBoost's fifty-eight thousand, and slower as you add data. Unusable in a live sensor.
+k-nearest-neighbours I rejected on engineering grounds, not accuracy: forty times slower to score, and
+worse as the training set grows. Unusable in a live sensor.
 
-## 4:31 – 5:32 · Performance measurement
+## 4:41 – 5:41 · Performance measurement
 
-[Show the confusion matrix, then the PR curve.]
+[Show score_row, then the confusion matrix.]
 
-Because the curves are saturated, I report counts. XGBoost caught ten thousand and forty-five
-attacks, missed four, and raised thirteen false alarms out of nearly thirty-eight thousand benign
-flows — three hundredths of a percent of clean traffic.
+Every metric comes from this one function, which also returns a business cost — ten for a missed
+attack, one for a false alarm — because those errors are not equally expensive.
+
+The curves are saturated, so I report counts: ten thousand and forty-five attacks caught, four missed,
+and thirteen false alarms across nearly thirty-eight thousand benign flows.
 
 [Point at the threshold sweep.]
 
-Now the part I think matters most. The default zero point five threshold is a modelling artefact, not
-a business decision, so I swept it and scored every point with my cost function: ten for a missed
-attack, one for a false alarm. At zero point five, cost fifty-three. At zero point one nine, cost
-thirty-seven — thirty percent better. And if the client demands zero misses, they can have it, for
-ninety-five false alarms instead of thirteen.
+Here's what I think matters most. The default zero point five threshold is a modelling artefact, not a
+business decision, so I sweep ninety-nine thresholds and cost each one. The cost-optimal point cuts
+cost by about a third. And zero misses is available too — for ninety-five false alarms instead of
+thirteen.
 
-So the honest statement is: your last three attacks cost about five false alarms each, and
-eliminating the final one costs eighty-two more. That's the client's call — my job is to quantify it.
+So the honest statement is: your last three attacks cost about five false alarms each, and eliminating
+the final one costs eighty-two more. That's the client's decision; my job is to price it.
 
-## 5:32 – 6:52 · Hyperparameter tuning
+## 5:41 – 7:06 · Hyperparameter tuning
 
-[Show the search spaces, then cv_results.]
+[Show the search spaces.]
 
-I tuned three model families with randomised search scored on PR-AUC — never accuracy — under
-stratified three-fold cross-validation, then a focused grid search, all on a training slice only.
+Note the `model__` prefix on every parameter — that addresses the estimator *inside* the pipeline, so
+each candidate is refitted through imputation and scaling rather than around it. Scoring is average
+precision, never accuracy. Randomised search first, because these spaces run to tens of thousands of
+combinations, then a focused grid around the winner, all on a training slice only.
 
-[Point at the results.]
+[Point at cv_results.]
 
 And here's my most interesting negative result: all twelve XGBoost configurations landed within two
-hundred-thousandths of each other — the same size as the noise between folds of a single
-configuration. **The spread between configurations is smaller than the noise within one.** My grid
-search then "improved" the score from nine nine nine nine four to nine nine nine nine four — a tie. And on test,
-the tuned model was two flows *worse* than the untuned default.
+hundred-thousandths of each other — the same size as the noise between folds of one configuration.
+**The spread between configurations is smaller than the noise within one.** The grid search then
+"improved" the score to the identical number, and on test the tuned model was two flows *worse* than
+the untuned default.
 
-I could have hidden that. Instead I explain it: hyperparameters only matter where a model is
-capacity-limited, and this problem is nearly separable — I'll show you why next.
+Rather than hide that, I explain it: hyperparameters only matter where a model is capacity-limited, and
+I'll show you next why this one barely is.
 
-[Point at the two tied configurations.]
+What tuning did buy was efficiency — two configurations tied exactly and one fits in half the time. And
+it genuinely mattered for one model: Logistic Regression improved once I relaxed regularisation,
+because it was the only candidate actually underfitting. Meanwhile the threshold cut cost by a third:
+one line beat my whole eighteen-minute search.
 
-What tuning did buy was efficiency: two configurations tied exactly and one fits in half the time.
-When quality ties, the cheapest model wins. And tuning genuinely mattered for one model — Logistic
-Regression improved once I relaxed regularisation, because it was genuinely underfitting.
-
-The threshold, meanwhile, took cost from sixty-six to forty-one. That one line beat my whole
-eighteen-minute search.
-
-## 6:52 – 8:16 · The finding that explains everything
+## 7:06 – 8:12 · The finding that explains everything
 
 [Show Section 7.1c and the importance chart.]
 
-So why is this problem so easy? Permutation importance answers it. The feature `port_web` — is the
-destination port eighty — scores zero point one eight eight. The runner-up scores zero point zero
-zero one two. That's a hundred and fifty-four times gap, and forty-two of my ninety-six features are
-exactly zero.
+So why is this so easy? Permutation importance answers it — and I use permutation rather than the
+model's built-in gain because it measures the drop in the metric I actually care about. One feature,
+`port_web`, is a hundred and fifty-four times more important than the runner-up, and forty-two of my
+ninety-six features score exactly zero.
 
-The cause is in my own EDA: eighty-seven percent of attacks are DoS Hulk, and they all hit the web
-port. One binary feature nearly solves the labelled task. That explains why every model scored above
-nine nine three, why tuning changed nothing, and why ten features tie with ninety-six.
+The cause is in my own EDA: eighty-seven percent of attacks are DoS Hulk and they all hit the web port,
+so one binary feature nearly solves the labelled task. That explains why every model scored so high,
+why tuning changed nothing, and why ten features tie with ninety-six.
 
-[Show 7.4a output.]
+[Show 7.4a.]
 
-And here's the proof it's a shortcut, not intelligence. I retrained with every Bot flow removed, then
-tested on Bot. Detection: zero out of a hundred and twenty-four. Zero percent — while the families
-still in training were caught perfectly. The model learned *these attack tools' fingerprints*, not
-maliciousness.
+Here's the proof it's a shortcut and not intelligence. I retrained with every Bot flow removed — same
+split, so only the family differs — then tested on Bot. Detection: zero out of a hundred and
+twenty-four, while the families still in training were caught perfectly. My model learned *these
+attack tools' fingerprints*, not maliciousness.
 
-[Show 7.4b and 7.6 briefly.]
+## 8:12 – 9:10 · AI ethics
 
-I tested an unsupervised layer as a safety net: it flags seventy-four percent of DoS but gives no lift
-at all on Bot, so I report honestly that it doesn't cover the gap. My evasion probe told the same
-story — the model shrugs off timing manipulation, so unseen families, not evasion, are the weakness.
+[Show 8.4 and 8.5.]
 
-## 8:16 – 9:11 · AI ethics
-
-[Show Sections 8.4 and 8.5.]
-
-Ethically I use flow statistics only, never packet contents, so message content is never inspected.
+Ethically, I use flow statistics only, never packet contents, so message content is never inspected.
 
 There's no protected attribute here, so I audited fairness by proxy: error rates per service, flow
-size, duration and capture session. Web traffic carries a false-alarm rate of nought point nought
-nought four four while DNS, TLS and auth sit at exactly zero — twenty-three of my thirty-one false
-alarms are web flows. Web users bear essentially the whole burden of being wrongly investigated.
+size, duration and capture session. Web traffic carries the entire false-alarm burden — twenty-three
+of my thirty-one false alarms are web flows, while DNS, TLS and auth sit at exactly zero. So web users
+are the only group ever wrongly investigated: an allocative harm with no personal data in the model.
 
-I then tried the textbook fix, per-service thresholds, and it *backfired*: it equalised the recall
-gap but tripled the false-positive gap and multiplied cost twelve times, because I'd calibrated to a
-one percent budget when the model already runs at nought point nought seven. I published the failure
-and the corrected recipe instead of deleting the cell.
+I then tried the textbook fix — per-service thresholds — and it *backfired*: it equalised the recall
+gap but tripled the false-positive gap and cost twelve times more, because I'd calibrated to a one
+percent alert budget when the model already runs fourteen times tighter. I published that failure and
+the corrected recipe instead of deleting the cell.
 
-## 9:11 – 9:51 · Conclusion
+## 9:10 – 9:56 · Deployment and conclusion
 
-[Show the Model Card, then face to camera.]
+[Show 7.8 and the Model Card, then face to camera.]
 
-To summarise: on unseen data my final model catches all but one of twelve and a half thousand
-attacks, with thirty-one false alarms, at eighty-eight thousand flows a second.
+For deployment I save the pipeline, threshold and feature contract as one artefact, and my scoring
+function re-applies every preparation step to raw rows, then reindexes onto that contract — so
+production can't hand the model a different feature vector than I trained on.
 
-But my recommendations are: deploy at threshold zero point one three, not zero point five; don't
-market this as zero-day detection, because I measured zero percent on an unseen family; and rebalance
-the training data by attack family — more benign traffic is worthless.
+My recommendations: deploy at the cost-optimal threshold, not zero point five; don't sell this as
+zero-day detection, because I measured zero percent on an unseen family; and rebalance the training
+data by attack family.
 
-My biggest limitation is that port-eighty shortcut, and my next step is the ablation — retrain
-without the port features and re-measure. Thank you for watching.
+My biggest limitation is that port-eighty shortcut, and my next step is the ablation — retrain without
+the port features and find out what this detector is really worth. Thank you for watching.
