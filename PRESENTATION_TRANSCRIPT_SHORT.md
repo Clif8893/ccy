@@ -1,7 +1,8 @@
 # IT3301 Assignment — Summarised Walkthrough Transcript
 
-A condensed version of `PRESENTATION_TRANSCRIPT.md`: same coverage and the same code-level detail,
-about 40% shorter. Plain text is spoken word-for-word; `[Square brackets]` are screen cues.
+A summarised walkthrough covering the problem, methodology and results, with the code explained at
+the level of *why each decision was made*. Plain text is spoken word-for-word; `[Square brackets]`
+are screen cues — don't read them aloud.
 
 * **Length:** 846 spoken words — **5:50** at 145 words per minute, **6:16** at a slow 135. That
   leaves roughly three minutes of the 10-minute allowance spare, so you can pause on a table, answer
